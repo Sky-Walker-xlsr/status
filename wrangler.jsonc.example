@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ys-status",
+  "main": "worker.ts",
+  "compatibility_date": "2025-04-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "vars": {
+    "NEXT_PUBLIC_SUPABASE_URL": "https://YOUR_PROJECT.supabase.co",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "YOUR_SUPABASE_ANON_KEY"
+    // SUPABASE_SERVICE_ROLE_KEY → wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+  },
+  "triggers": {
+    "crons": ["* * * * *", "0 * * * *", "5 0 * * *"]
+  }
+  // Uncomment once the domain/route is set up:
+  // "routes": [{ "pattern": "status.yannicksalm.ch/*", "zone_name": "yannicksalm.ch" }]
+}

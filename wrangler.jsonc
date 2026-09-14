@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ys-status",
+  "account_id": "b7cc1bc9eeaec1c7dd4e9308c4c7cfc5",
+  "main": "worker.ts",
+  "compatibility_date": "2025-04-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "vars": {
+    "NEXT_PUBLIC_SUPABASE_URL": "https://blajfqsoswnfbesmjqtv.supabase.co",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJsYWpmcXNvc3duZmJlc21qcXR2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzNDE4MDYsImV4cCI6MjEwNDkxNzgwNn0.f9i6FoIIqW1h4r8USVXiYg2P9Ccs-YjUkwc3TZdB3sM"
+    // SUPABASE_SERVICE_ROLE_KEY → wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+  },
+  "triggers": {
+    "crons": ["* * * * *", "0 * * * *", "5 0 * * *"]
+  }
+  // Uncomment once the domain/route is set up:
+  // "routes": [{ "pattern": "status.yannicksalm.ch/*", "zone_name": "yannicksalm.ch" }]
+}
