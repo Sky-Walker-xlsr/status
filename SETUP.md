@@ -202,15 +202,37 @@ Das erzeugt zwei `<link rel="icon" media="...">`-Tags im `<head>`, der Browser w
 
 ---
 
-## 9. Aktueller Stand
+## 9. Bug 10 — Concurrency-Limit: falsche "Unhealthy"-Flaps ab ~7 Endpoints
+
+**Problem:** Nach dem Ausbau auf ~19 Endpoints zeigte das Dashboard immer wieder wechselnde Endpoints als "Unhealthy" — mal Home + Xavi Admin + YS-Workout, den nächsten Tick Home + Xavi Stylist (Haupt-Domain) + Xavi Admin. Auffällig: **welche** Endpoints betroffen waren, wechselte von Tick zu Tick, nicht immer dieselben. `curl` von aussen bekam für alle betroffenen URLs sofort ein sauberes `200 OK`.
+
+**Erste (falsche) Spur:** sah zunächst wieder nach dem Cloudflare-Bot-Management-Muster aus (Bug 7). Aber: die `yannicksalm.ch`-Zone hat gar keine WAF-Regeln, und andere Subdomains auf derselben Zone (Coolify, PgAdmin, Zitadel, ...) liefen die ganze Zeit einwandfrei — ein zonenweiter Bot-Block hätte die alle gleichermassen treffen müssen. Der wechselnde Täterkreis passte nicht zu einem statischen Block.
+
+**Diagnose:** `lib/checker/runCheck.ts` temporär um echtes Error-Logging im catch-Block erweitert (`console.error` mit Fehlername), deployed, `wrangler tail` über zwei Ticks laufen lassen. Ergebnis durchgehend: `TimeoutError: The operation was aborted due to timeout` — also ein **echter** Timeout unsererseits, keine Ablehnung durch die Zielseite.
+
+**Ursache:** Cloudflare Workers erlauben pro Invocation maximal **6 gleichzeitige Verbindungen, die auf Response-Header warten** (`fetch()`, KV, R2, ... zählen alle mit; sobald die Header da sind, zählt die Verbindung nicht mehr mit). `minuteCheck.ts` feuerte alle Endpoint-Checks über ein einziges `Promise.all()` gleichzeitig ab — bei ~19 Endpoints standen also 13 permanent in der Warteschlange für einen der 6 Slots. Wartezeit + tatsächliche Request-Zeit zusammen überschritten gelegentlich unser eigenes 10s-Timeout, obwohl das Ziel längst geantwortet hätte. Welche 6 zuerst drankamen, war pro Tick unterschiedlich — daher der wechselnde Täterkreis.
+
+**Fix:** `lib/checker/concurrency.ts` — kleiner `mapWithConcurrency()`-Pool, der nie mehr als `CHECK_CONCURRENCY = 5` Checks gleichzeitig laufen lässt (5 statt 6 als Sicherheitsmarge für die Supabase-Calls direkt davor/danach). In `minuteCheck.ts` ersetzt das direkte `Promise.all(endpoints.map(...))`. Bei 19 Endpoints im Batch-Betrieb: worst case ⌈19/5⌉ × 10s = 40s, klar unter dem 60s-Tick-Intervall.
+
+**Verifiziert:** zwei volle Minuten-Ticks nach dem Fix über `wrangler tail` beobachtet — keine einzige Fehlermeldung, 0 fehlgeschlagene Checks in der DB über 3 Minuten (vorher: 2-4 falsche Fehlschläge pro Tick).
+
+**Cleanup:** 319 durch den Bug verursachte Fake-Failed-Checks und 14 daraus resultierende `became_healthy`/`became_unhealthy`-Events gelöscht (gleiche Begründung wie Abschnitt 5 — Bug-Artefakte, keine echten Ausfälle). Das Error-Logging in `runCheck.ts` wurde **nicht** wieder entfernt — es feuert nur bei echten Fehlschlägen und liefert im Ernstfall (z.B. eine Seite ist wirklich down) über `wrangler tail`/Cloudflare Workers Logs sofort die genaue Fehlerart statt nur `status_code: null`.
+
+**Generelle Lektion:** Dieses Limit betrifft jede Cloudflare-Worker-Fan-out-Logik, nicht nur diesen Checker — sobald mehr als 6 gleichzeitige `fetch()`/KV/R2-Aufrufe in einer einzigen Invocation nötig sind, muss die Nebenläufigkeit begrenzt werden, sonst entstehen genau solche nicht-deterministischen Timeouts.
+
+---
+
+## 10. Aktueller Stand
 
 - Live: `https://ys-status.yannick-salm.workers.dev` (Account `yannicksalm.ch`, Account-ID `b7cc1bc9eeaec1c7dd4e9308c4c7cfc5`)
-- GitHub: `https://github.com/Sky-Walker-xlsr/status` (öffentlich, `supabase/`-Ordner ausgeschlossen) — Stand des Repos: nur der initiale Commit. Header/Icon-Update (Abschnitt 6) und Kontrast/Favicon-Fix (Abschnitt 8) sind live deployed, aber **noch nicht committed/gepusht**.
-- Alle 3 Cron Triggers laufen (`* * * * *`, `0 * * * *`, `5 0 * * *`), verifiziert über `wrangler tail`
+- GitHub: `https://github.com/Sky-Walker-xlsr/status` (öffentlich, `supabase/`-Ordner ausgeschlossen) — Header/Icon-Update, Kontrast/Favicon-Fix und FINAL.md wurden zwischenzeitlich selbst committed + gepusht ("some corrections"). Der Concurrency-Fix (Abschnitt 9) ist live deployed, aber **noch nicht committed/gepusht**.
+- Alle 3 Cron Triggers laufen (`* * * * *`, `0 * * * *`, `5 0 * * *`), verifiziert über `wrangler tail` — inkl. Concurrency-Fix, 0 Fehlschläge über mehrere Ticks beobachtet
 - Secrets gesetzt: `SUPABASE_SERVICE_ROLE_KEY`, `HEALTH_CHECK_SECRET`
-- ~19 Endpoints aktiv überwacht (Infrastruktur, Monitoring, Web-Apps, DB, Clients)
+- ~19 Endpoints aktiv überwacht (Infrastruktur, Monitoring, Web-Apps, DB, Clients), alle healthy
 - Offene Punkte:
   - `styl` und `teamevent-umfrage` brauchen noch eine echte Domain in `insert.sql`
+  - `Psono Vault` hat weiterhin eine unvollständige URL (`https://.yannicksalm.ch`) in `insert.sql`
   - Custom-Domain-Route (`status.yannicksalm.ch`) in `wrangler.jsonc` ist noch auskommentiert, DNS-Setup steht noch aus
-  - Lokale Änderungen aus Abschnitt 6 + 8 noch nicht committed/gepusht
+  - Concurrency-Fix (Abschnitt 9) noch nicht committed/gepusht
   - Tote `supabase/`-Links in README.md/SETUP.md auf GitHub (siehe Abschnitt 7)
+  - `GitGuardian` meldet den `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `wrangler.jsonc` als JWT-Fund — false positive, das ist der bewusst öffentliche Supabase-`anon`-Key, geschützt durch RLS, kein echtes Secret

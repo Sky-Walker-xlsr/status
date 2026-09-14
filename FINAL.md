@@ -132,8 +132,9 @@ lib/
   checker/
     types.ts                     CheckerEnv (Worker-Bindings-Typ)
     db.ts                        service_role-Client
-    runCheck.ts                  Einzelner HTTP-Check
-    minuteCheck.ts               Minuten-Cron: Checks + Event-Erkennung (gebatched)
+    runCheck.ts                  Einzelner HTTP-Check (loggt Fehlerursache bei Fehlschlag)
+    concurrency.ts                mapWithConcurrency() — begrenzt gleichzeitige Checks auf 5
+    minuteCheck.ts               Minuten-Cron: Checks (max. 5 parallel) + Event-Erkennung (gebatched)
     hourlyRollup.ts               Stunden-Cron: checks → hourly_stats (gebatched)
     dailyRollup.ts                Tages-Cron: hourly_stats → daily_stats (gebatched)
   utils.ts                        cn()-Helper (für animate-ui)
@@ -215,8 +216,9 @@ Wird automatisch beim nächsten Minuten-Cron erfasst, kein Deploy nötig. Für e
 
 ## 8. Aktueller Live-Stand
 
-- **19 Endpoints** über 8 Gruppen: Infrastruktur (7, in zwei leicht unterschiedlich geschriebenen Gruppen — siehe unten), Clients (3), Web-App (3), Monitoring (2), DB (2), Homepage (1), Test (1)
+- **19 Endpoints** über 8 Gruppen: Infrastruktur (7, in zwei leicht unterschiedlich geschriebenen Gruppen — siehe unten), Clients (3), Web-App (3), Monitoring (2), DB (2), Homepage (1), Test (1) — alle healthy
 - Alle 3 Cron Triggers aktiv (`* * * * *` Checks, `0 * * * *` Hourly-Rollup, `5 0 * * *` Daily-Rollup um 00:05 UTC)
+- Checks laufen mit max. 5 gleichzeitigen Requests pro Tick (`lib/checker/concurrency.ts`) — wichtig ab ca. 7 Endpoints, siehe SETUP.md Bug 10
 - 2 Endpoints mit `hide_url = true` (Xavi Test-DB, YS-Home-DB)
 
 **Bekannte kleine Unsauberkeiten** (nicht funktional kritisch, aber erwähnenswert):
@@ -224,5 +226,6 @@ Wird automatisch beim nächsten Minuten-Cron erfasst, kein Deploy nötig. Für e
 - `Psono Vault` hat weiterhin eine unvollständige URL (`https://.yannicksalm.ch`, fehlende Subdomain) in `insert.sql` — beim letzten Check noch nicht korrigiert.
 - `styl` (Coiffeur Aarau) und `teamevent-umfrage` haben noch keinen Eintrag — keine verifizierte Live-Domain gefunden.
 - README.md/SETUP.md verlinken auf `supabase/*.sql`-Dateien, die im öffentlichen GitHub-Repo nicht vorhanden sind (bewusst ausgeschlossen, siehe SETUP.md Abschnitt 7).
+- GitGuardian meldet den `anon`-Key in `wrangler.jsonc` als JWT — false positive, siehe SETUP.md Abschnitt 10.
 
 Details zu allen Bugs, Entscheidungen und deren Begründung: siehe [SETUP.md](SETUP.md). Setup-/Deploy-Anleitung für Neuaufsetzen: siehe [README.md](README.md).

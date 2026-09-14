@@ -1,9 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runCheck } from "./runCheck";
+import { mapWithConcurrency } from "./concurrency";
 
 // Wide enough to survive a missed tick or a brief worker outage without
 // wrongly treating the next check as "initial" again; still a single query.
 const PREVIOUS_CHECK_LOOKBACK_MINUTES = 30;
+
+// Stay under Cloudflare's 6-simultaneous-connections-per-invocation cap, with
+// a margin for the Supabase calls before/after the fetch burst.
+const CHECK_CONCURRENCY = 5;
 
 interface EndpointRow {
   id: string;
@@ -29,9 +34,10 @@ export async function runMinuteCheck(db: SupabaseClient, checkSecret?: string) {
   );
 
   const extraHeaders = checkSecret ? { "X-Health-Check-Secret": checkSecret } : undefined;
-  const results = await Promise.all(
-    endpoints.map(async (endpoint) => ({ endpoint, result: await runCheck(endpoint.url, extraHeaders) }))
-  );
+  const results = await mapWithConcurrency(endpoints, CHECK_CONCURRENCY, async (endpoint) => ({
+    endpoint,
+    result: await runCheck(endpoint.url, extraHeaders),
+  }));
 
   const checkedAt = new Date().toISOString();
   const { error: insertError } = await db.from("checks").insert(

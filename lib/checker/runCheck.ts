@@ -33,7 +33,8 @@ export async function runCheck(url: string, extraHeaders?: Record<string, string
       status_code: response.status,
       response_time_ms,
     };
-  } catch {
+  } catch (err) {
+    console.error(`check failed for ${url}:`, err instanceof Error ? `${err.name}: ${err.message}` : String(err));
     return {
       success: false,
       status_code: null,
