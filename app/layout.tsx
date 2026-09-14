@@ -4,6 +4,12 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Health Dashboard",
   description: "Live status and uptime for monitored endpoints.",
+  icons: {
+    icon: [
+      { url: "/icon_black.svg", media: "(prefers-color-scheme: light)" },
+      { url: "/icon_white.svg", media: "(prefers-color-scheme: dark)" },
+    ],
+  },
 };
 
 const THEME_INIT_SCRIPT = `

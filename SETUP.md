@@ -155,10 +155,62 @@ Nach den Fixes (Bug 3, 7) enthielt die DB ~60 fehlgeschlagene Checks und 4 `beca
 
 ---
 
-## 6. Aktueller Stand
+## 6. UI-Update: Header, Icon, GitHub-Link
+
+Anforderung: grösserer Header, animiertes Icon aus der animate-ui-Registry, Text "YS. Health Dashboard" ohne Untertitel, echter GitHub-Link unten rechts.
+
+**Ablauf:** `npx shadcn@latest add @animate-ui/icons-activity`. Da noch kein `components.json` existierte, löste das automatisch `shadcn init` aus (nicht explizit angefordert).
+
+**Ursache/Problem:** `shadcn init` hat mehr gemacht als nur die Icon-Komponente zu holen — es injizierte eine komplette parallele oklch-Theme-Struktur in `globals.css` (`.dark`-Klasse, `--background`/`--foreground`-Tokens, ein `@layer base`-Block der `body { @apply bg-background text-foreground }` erzwingt) und tauschte den Font in `layout.tsx` (Geist). Das kollidierte direkt mit dem bereits bestehenden, selbstgebauten `[data-theme]`-Attribut-Theme-System (zwei parallele, sich überschreibende Theming-Mechanismen).
+
+**Fix:** `git checkout -- app/globals.css app/layout.tsx` — beide zurück auf committeten Stand, danach nur das behalten, was die Icon-Komponente tatsächlich braucht: `lib/utils.ts` (cn-Helper), `components/animate-ui/`, `hooks/use-is-in-view.tsx`, `components.json`. Ungenutztes Scaffold (`components/ui/button.tsx`) gelöscht.
+
+**Bug 9 — Fehler in der geladenen Registry-Datei selbst:** `components/animate-ui/icons/icon.tsx` übergab an zwei Stellen einen `render`-Prop an `<AnimateIcon>`, das aber laut eigenem Typ nur `asChild` + `children` kennt — `render` wäre unbenutzt in `...props` gelandet (falsches Runtime-Verhalten) und brach ausserdem den Typecheck (`Property 'render' does not exist on type 'IntrinsicAttributes & AnimateIconProps<string>'`). Kein Fehler in unserem Code, sondern im Registry-Snippet selbst. Fix: beide Stellen auf `<AnimateIcon asChild>...<IconComponent .../></AnimateIcon>` (Slot-Pattern mit `children` statt `render`) umgeschrieben.
+
+**Ergebnis:** `Header.tsx` neu geschrieben — `ActivityIcon` (animate-ui, `size={40}`, `animateOnHover`, Farbe `var(--color-success)`), Text `YS. Health Dashboard`, kein Untertitel mehr. GitHub-Link unten rechts von Platzhalter (`https://github.com/`) auf `https://github.com/Sky-Walker-xlsr/status` gesetzt.
+
+## 7. GitHub-Repo Setup & Push
+
+- Ziel-Repo `Sky-Walker-xlsr/status` existierte bereits (leer, öffentlich).
+- SSH-Identität war bereits vorkonfiguriert (`~/.ssh/config`, Host-Alias `github-sky-walker-xlsr`, eigener Key getrennt von der `homepagesya1`-Identität, die für die übrigen ys-*-Repos verwendet wird) — kein zusätzliches Auth-Setup nötig, direkt getestet via `ssh -T git@github-sky-walker-xlsr`.
+- **Da das Repo öffentlich ist:** kompletter `supabase/`-Ordner in `.gitignore` aufgenommen (auf expliziten Wunsch) — enthält u.a. `insert.sql` mit echten internen Admin-Panel-URLs (Coolify, PgAdmin, Zitadel-Auth, Backup-Tool). `.env.local` war schon vorher ignoriert.
+- Vor dem ersten Commit alle gestagten Dateien nach Secret-Mustern durchsucht (`eyJ...`/JWT-Strings, `service_role`, `HEALTH_CHECK_SECRET`-Werte) — einzig der bewusst öffentliche Supabase-`anon`-Key in `wrangler.jsonc` gefunden (unkritisch per Design, RLS-geschützt), sonst nichts.
+- Initial Commit + `git push -u origin main`.
+
+**Bekannter Nebeneffekt:** `README.md`/`SETUP.md` verlinken auf Dateien unter `supabase/` (z.B. `supabase/001_init.sql`) — die liegen wegen des Gitignore-Eintrags nicht im öffentlichen Repo, die Links sind auf GitHub also tot. Bewusst so gelassen (explizite User-Entscheidung fürs Ausblenden), nicht automatisch "repariert".
+
+## 8. Kontrast-Fix (Light Theme) & Light/Dark-Favicon
+
+**Kontrast:** Nach einer manuellen Anpassung von `--color-bg` im Light-Theme auf `#fcf6f5` (warmes Off-White) stand die Frage, ob `--color-card` (`#ffffff`) noch genug Kontrast zum Hintergrund hat.
+
+**Erkenntnis:** `#ffffff` ist bereits die maximal mögliche Helligkeit — über reine Lightness lässt sich der Kontrast zum fast-weissen Hintergrund nicht weiter steigern (rechnerisches Kontrastverhältnis ~1.03:1, praktisch nicht wahrnehmbar). Die Karten-Füllfarbe selbst war also schon optimal; der Hebel musste woanders ansetzen.
+
+**Fix:** `--color-border` von neutralem Grau (`#e2e2e2`) auf einen zum Hintergrund passenden warmen Ton (`#e5d8d4`) gesetzt, `--shadow-card` warm eingefärbt und leicht verstärkt (`rgba(133, 77, 60, 0.09)` statt reinem Schwarz-Schatten). Rand + Schatten übernehmen die Abgrenzung, nicht die Füllfarbe. Visuell per Playwright-Screenshot verifiziert (Karten jetzt klar vom Hintergrund unterscheidbar). Dark Theme unangetastet.
+
+**Favicon je nach Browser-Farbschema:** Next.js' `icon.svg`-Dateikonvention kann nur ein einzelnes statisches Icon ausliefern, keine Variante nach `prefers-color-scheme`. Stattdessen `metadata.icons` in `layout.tsx` mit je einem `media`-Query pro Icon genutzt:
+```ts
+icons: {
+  icon: [
+    { url: "/icon_black.svg", media: "(prefers-color-scheme: light)" },
+    { url: "/icon_white.svg", media: "(prefers-color-scheme: dark)" },
+  ],
+},
+```
+Das erzeugt zwei `<link rel="icon" media="...">`-Tags im `<head>`, der Browser wählt selbst anhand seines/des OS-Farbschemas — unabhängig vom In-App-Theme-Toggle, der nur unsere eigenen CSS-Variablen steuert.
+
+**Stolperstein:** `icon_black.svg`/`icon_white.svg` lagen ursprünglich direkt in `app/` — dort liefert Next.js aber nur seine Sonderdateien (page.tsx, `icon.png`, `favicon.ico`, …) automatisch aus, beliebig benannte Dateien sind dort unter keiner URL erreichbar. Nach `public/` verschoben, damit `/icon_black.svg` etc. tatsächlich auflösbar sind — vorher waren beide Dateien faktisch tot.
+
+---
+
+## 9. Aktueller Stand
 
 - Live: `https://ys-status.yannick-salm.workers.dev` (Account `yannicksalm.ch`, Account-ID `b7cc1bc9eeaec1c7dd4e9308c4c7cfc5`)
+- GitHub: `https://github.com/Sky-Walker-xlsr/status` (öffentlich, `supabase/`-Ordner ausgeschlossen) — Stand des Repos: nur der initiale Commit. Header/Icon-Update (Abschnitt 6) und Kontrast/Favicon-Fix (Abschnitt 8) sind live deployed, aber **noch nicht committed/gepusht**.
 - Alle 3 Cron Triggers laufen (`* * * * *`, `0 * * * *`, `5 0 * * *`), verifiziert über `wrangler tail`
 - Secrets gesetzt: `SUPABASE_SERVICE_ROLE_KEY`, `HEALTH_CHECK_SECRET`
 - ~19 Endpoints aktiv überwacht (Infrastruktur, Monitoring, Web-Apps, DB, Clients)
-- Offene Punkte: `styl` und `teamevent-umfrage` brauchen noch eine echte Domain in `insert.sql`; Custom-Domain-Route (`status.yannicksalm.ch`) in `wrangler.jsonc` ist noch auskommentiert, DNS-Setup steht noch aus.
+- Offene Punkte:
+  - `styl` und `teamevent-umfrage` brauchen noch eine echte Domain in `insert.sql`
+  - Custom-Domain-Route (`status.yannicksalm.ch`) in `wrangler.jsonc` ist noch auskommentiert, DNS-Setup steht noch aus
+  - Lokale Änderungen aus Abschnitt 6 + 8 noch nicht committed/gepusht
+  - Tote `supabase/`-Links in README.md/SETUP.md auf GitHub (siehe Abschnitt 7)

@@ -127,7 +127,7 @@ export default function OverviewPage() {
             <ThemeToggle />
           </div>
           <a
-            href="https://github.com/"
+            href="https://github.com/Sky-Walker-xlsr/status"
             target="_blank"
             rel="noreferrer"
             className="flex h-8 w-8 items-center justify-center rounded-full"

@@ -23,9 +23,13 @@
 }
 
 :root[data-theme="light"] {
-  --color-bg: #f5f5f5;
+  --color-bg: #fcf6f5;
+  /* Pure white is already the max lightness available, so it can't gain more
+     contrast against the near-white bg through lightness alone — the border
+     and shadow are tinted warm (matching --color-bg's hue) and darkened a
+     touch so cards stay visually distinct instead of blending into the page. */
   --color-card: #ffffff;
-  --color-border: #e2e2e2;
+  --color-border: #e5d8d4;
   --color-text: #1a1a1a;
   --color-text-secondary: #6b6b6b;
   --color-success: #0ea472;
@@ -34,8 +38,8 @@
   --color-danger-bg: rgba(153, 0, 17, 0.08);
   --color-danger-text: #c8102e;
   --color-accent: #3b82f6;
-  --color-check-empty: #e2e2e2;
-  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.06);
+  --color-check-empty: #e5d8d4;
+  --shadow-card: 0 4px 20px rgba(133, 77, 60, 0.09);
 }
 
 * {
