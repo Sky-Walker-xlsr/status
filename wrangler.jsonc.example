@@ -11,11 +11,10 @@
   "vars": {
     "NEXT_PUBLIC_SUPABASE_URL": "https://YOUR_PROJECT.supabase.co",
     "NEXT_PUBLIC_SUPABASE_ANON_KEY": "YOUR_SUPABASE_ANON_KEY"
-    // SUPABASE_SERVICE_ROLE_KEY → wrangler secret put SUPABASE_SERVICE_ROLE_KEY
   },
-  "triggers": {
-    "crons": ["* * * * *", "0 * * * *", "5 0 * * *"]
-  }
+  // Explicitly empty — omitting `triggers` would leave old crons in place on deploy.
+  // Health checks run in the separate checker/ worker.
+  "triggers": { "crons": [] }
   // Uncomment once the domain/route is set up:
   // "routes": [{ "pattern": "status.yannicksalm.ch/*", "zone_name": "yannicksalm.ch" }]
 }

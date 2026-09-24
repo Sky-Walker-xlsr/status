@@ -3,30 +3,11 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import { default as nextHandler } from "./.open-next/worker.js";
-import { getAdminClient } from "./lib/checker/db";
-import { runMinuteCheck } from "./lib/checker/minuteCheck";
-import { runHourlyRollup } from "./lib/checker/hourlyRollup";
-import { runDailyRollup } from "./lib/checker/dailyRollup";
-import type { CheckerEnv } from "./lib/checker/types";
 
+// Serves the dashboard only. Health checks + rollups run in the separate,
+// lightweight `ys-status-checker` worker (see checker/index.ts) — running them
+// here pulled the whole Next.js bundle into every cron invocation and kept
+// hitting the Workers Free plan's 10ms CPU limit.
 export default {
   fetch: nextHandler.fetch,
-
-  async scheduled(controller: ScheduledController, env: CheckerEnv) {
-    const db = getAdminClient(env);
-
-    switch (controller.cron) {
-      case "* * * * *":
-        await runMinuteCheck(db, env.HEALTH_CHECK_SECRET);
-        break;
-      case "0 * * * *":
-        await runHourlyRollup(db);
-        break;
-      case "5 0 * * *":
-        await runDailyRollup(db);
-        break;
-      default:
-        console.warn(`Unhandled cron trigger: ${controller.cron}`);
-    }
-  },
-} satisfies ExportedHandler<CheckerEnv>;
+} satisfies ExportedHandler;

@@ -1,7 +1,8 @@
 # dependencies
 /node_modules
 /.open-next
-/.wrangler
+.wrangler
+.dev.vars*
 
 # next.js
 /.next/

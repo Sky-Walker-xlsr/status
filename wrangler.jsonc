@@ -12,11 +12,10 @@
   "vars": {
     "NEXT_PUBLIC_SUPABASE_URL": "https://blajfqsoswnfbesmjqtv.supabase.co",
     "NEXT_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJsYWpmcXNvc3duZmJlc21qcXR2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzNDE4MDYsImV4cCI6MjEwNDkxNzgwNn0.f9i6FoIIqW1h4r8USVXiYg2P9Ccs-YjUkwc3TZdB3sM"
-    // SUPABASE_SERVICE_ROLE_KEY → wrangler secret put SUPABASE_SERVICE_ROLE_KEY
   },
-  "triggers": {
-    "crons": ["* * * * *", "0 * * * *", "5 0 * * *"]
-  }
+  // Explicitly empty — omitting `triggers` would leave old crons in place on deploy.
+  // Health checks run in the separate checker/ worker.
+  "triggers": { "crons": [] }
   // Uncomment once the domain/route is set up:
   // "routes": [{ "pattern": "status.yannicksalm.ch/*", "zone_name": "yannicksalm.ch" }]
 }

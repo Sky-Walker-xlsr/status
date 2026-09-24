@@ -1,0 +1,18 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "ys-status-checker",
+  "account_id": "b7cc1bc9eeaec1c7dd4e9308c4c7cfc5",
+  "main": "index.ts",
+  "compatibility_date": "2025-04-01",
+  // No HTTP surface — this worker only runs on cron.
+  "workers_dev": false,
+  "vars": {
+    "SUPABASE_URL": "https://blajfqsoswnfbesmjqtv.supabase.co"
+    // SUPABASE_SERVICE_ROLE_KEY → wrangler secret put SUPABASE_SERVICE_ROLE_KEY -c checker/wrangler.jsonc
+    // HEALTH_CHECK_SECRET (optional) → wrangler secret put HEALTH_CHECK_SECRET -c checker/wrangler.jsonc
+  },
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+  "observability": { "enabled": true }
+}

@@ -7,7 +7,7 @@ Eigene Status-Page-Applikation (angelehnt an [gatus](https://github.com/TwiN/gat
 - Next.js (App Router, TypeScript), Deployment via `@opennextjs/cloudflare`
 - Supabase (Postgres), Zugriff über die legacy API keys (`anon` fürs Frontend, `service_role` nur im Checker-Worker)
 - Tailwind CSS
-- Cloudflare Cron Triggers für den Checker/Rollup-Worker (siehe `worker.ts`)
+- Cloudflare Cron Triggers für den separaten Checker/Rollup-Worker (siehe `checker/index.ts`)
 
 ## Setup
 
@@ -25,6 +25,7 @@ npm run dev                  # http://localhost:3000
    - [`001_init.sql`](supabase/001_init.sql) — legt `endpoints`, `checks`, `hourly_stats`, `daily_stats`, `events` an inkl. RLS-Policies (public read, kein Write für `anon`).
    - [`002_hide_url.sql`](supabase/002_hide_url.sql) — fügt `endpoints.hide_url` hinzu (siehe unten).
    - [`003_endpoints_public_view.sql`](supabase/003_endpoints_public_view.sql) — maskiert `url` für versteckte Endpoints auch auf DB-Ebene (siehe unten).
+   - [`004_gatus_style_checker.sql`](supabase/004_gatus_style_checker.sql) — Health-State pro Endpoint, Failure/Success-Thresholds und Rollups als Postgres-Funktionen (für den `checker/`-Worker).
 
 Es gibt keinen Migration-Runner — weitere Migrationen als `004_*.sql` etc. in `supabase/` ablegen und manuell ausführen.
 
@@ -48,13 +49,13 @@ insert into endpoints (name, group_name, url) values
   ('PT Dashboard', 'Infrastructure', 'https://pt.yannicksalm.ch');
 ```
 
-Der Checker holt sich neue Endpoints automatisch beim nächsten Minuten-Cron — kein Deploy nötig.
+Der Checker holt sich neue Endpoints automatisch beim nächsten 5-Minuten-Cron — kein Deploy nötig.
 
 ### Bot-Schutz auf Zielseiten umgehen
 
 Der Checker läuft selbst als Cloudflare Worker, also kommen die Health-Check-Requests aus Cloudflares eigenem Netz. Zielseiten, die ebenfalls auf Cloudflare liegen und Bot Fight Mode / Super Bot Fight Mode aktiv haben, blocken das oft als automatisierten Traffic (403) — selbst wenn die Seite für normale Besucher einwandfrei läuft.
 
-Fix: der Checker schickt bei jedem Request den Header `X-Health-Check-Secret` mit (Wert = `HEALTH_CHECK_SECRET`, siehe `.env.example` / `wrangler secret put HEALTH_CHECK_SECRET`). Auf der **Zielseite** (nicht hier im Projekt) in Cloudflare eine WAF Custom Rule anlegen:
+Fix: der Checker schickt bei jedem Request den Header `X-Health-Check-Secret` mit (Wert = `HEALTH_CHECK_SECRET`, siehe `.env.example` / `npx wrangler secret put HEALTH_CHECK_SECRET -c checker/wrangler.jsonc`). Auf der **Zielseite** (nicht hier im Projekt) in Cloudflare eine WAF Custom Rule anlegen:
 
 - Security → WAF → Custom rules → Create rule
 - Field: `Header` → `X-Health-Check-Secret` → `equals` → `<HEALTH_CHECK_SECRET-Wert>`
@@ -64,9 +65,19 @@ Damit umgeht nur der Checker (mit dem korrekten Secret) den Bot-Schutz — für 
 
 ## Wie es funktioniert
 
-- **Jede Minute** (`* * * * *`): `worker.ts` → `lib/checker/minuteCheck.ts` macht für jeden Endpoint ein GET (10s Timeout, Erfolg = HTTP 2xx), schreibt eine Zeile in `checks` und bei Statuswechsel eine Zeile in `events`.
-- **Stündlich** (`0 * * * *`): `lib/checker/hourlyRollup.ts` aggregiert die letzte volle Stunde in `hourly_stats`, löscht `checks` älter als 24h.
-- **Täglich um 00:05 UTC** (`5 0 * * *`): `lib/checker/dailyRollup.ts` aggregiert den Vortag in `daily_stats`, löscht `hourly_stats` älter als 7 Tage.
+Zwei getrennte Worker:
+
+- **`ys-status`** (`worker.ts`, `wrangler.jsonc`) — nur das Next.js-Dashboard, keine Crons.
+- **`ys-status-checker`** (`checker/index.ts`, `checker/wrangler.jsonc`) — die Health-Checks, bewusst winzig (kein Next.js, kein supabase-js, nur `fetch`). Hintergrund: Cron-Aufrufe haben im Workers-Free-Plan 10 ms CPU. Der alte Checker lief im Next.js-Worker und wurde ständig mit `exceededCpu` abgebrochen → ganze Check-Runs fehlten.
+
+Ablauf (angelehnt an gatus):
+
+- **Alle 5 Minuten** (`*/5 * * * *`): GET auf jeden Endpoint (10s Timeout, Redirects folgen, Erfolg = HTTP 2xx). Schlägt ein Check fehl, wird er nach 2s einmal wiederholt. Danach **ein** RPC-Call `record_check_results`, der die Zeile in `checks` schreibt und den Health-State pro Endpoint führt.
+- **Thresholds**: ein Endpoint wird erst nach **2 fehlgeschlagenen Checks in Folge** `unhealthy` (Event-Zeitpunkt = erster Fehlschlag) und nach **1 erfolgreichen Check** wieder `healthy`. Konstanten `FAILURE_THRESHOLD` / `SUCCESS_THRESHOLD` in `checker/index.ts`.
+- **Zur vollen Stunde** (im selben `*/5`-Run): `rollup_hourly()` aggregiert die letzte volle Stunde in `hourly_stats`, löscht `checks` älter als 24h.
+- **Täglich um 00:05 UTC** (im selben `*/5`-Run): `rollup_daily()` aggregiert den Vortag in `daily_stats`, löscht `hourly_stats` älter als 7 Tage.
+
+Nur **ein** Cron Trigger, weil der Free-Plan max. 5 pro Account erlaubt. Rollups laufen komplett in SQL — kein PostgREST-1000-Zeilen-Limit mehr.
 
 Das Frontend (`lib/queries/`) liest je nach Zeitraum aus der passenden Tabelle: 1h/24h direkt aus `checks`, 7d aus `hourly_stats`, 30d aus `daily_stats` (mit Fallback auf `hourly_stats` für die letzten 1-2 Tage, die `daily_stats` noch nicht gerollt hat).
 
@@ -75,18 +86,20 @@ Das Frontend (`lib/queries/`) liest je nach Zeitraum aus der passenden Tabelle: 
 ```bash
 cp wrangler.jsonc.example wrangler.jsonc   # falls noch nicht vorhanden
 # NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY in wrangler.jsonc eintragen
-wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+npm run deploy   # Dashboard: opennextjs-cloudflare build && opennextjs-cloudflare deploy
 
-npm run deploy   # opennextjs-cloudflare build && opennextjs-cloudflare deploy
+# Checker (erst nach 004_gatus_style_checker.sql!)
+npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY -c checker/wrangler.jsonc
+npx wrangler deploy -c checker/wrangler.jsonc
 ```
 
-`wrangler.jsonc` (`main: "worker.ts"`) verwendet einen Custom Worker Entry: `worker.ts` importiert den von OpenNext generierten Fetch-Handler aus `.open-next/worker.js` und ergänzt ihn um den `scheduled`-Handler für die drei Cron Triggers. Die Domain/Route in `wrangler.jsonc` ist noch auskommentiert — nach DNS-Setup aktivieren.
+`wrangler.jsonc` (`main: "worker.ts"`) verwendet einen Custom Worker Entry: `worker.ts` reicht den von OpenNext generierten Fetch-Handler aus `.open-next/worker.js` durch. Die Domain/Route in `wrangler.jsonc` ist noch auskommentiert — nach DNS-Setup aktivieren.
 
 Lokal testen:
 
 ```bash
-npm run preview   # opennextjs-cloudflare build && opennextjs-cloudflare preview
-curl "http://localhost:8787/__scheduled?cron=*+*+*+*+*"   # Minuten-Check manuell triggern
+npx wrangler dev -c checker/wrangler.jsonc --test-scheduled   # Checker lokal (schreibt in die echte DB!)
+curl "http://localhost:8787/__scheduled?cron=*/5+*+*+*+*"     # Check-Run manuell triggern
 ```
 
 ## Scripts
